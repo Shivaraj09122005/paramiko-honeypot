@@ -77,6 +77,16 @@ PAGE_TEMPLATE = """
                 {% endfor %}
             </table>
         </div>
+    <div class="card">
+            <h3>Recent Sessions</h3>
+            <table>
+                <tr><th>Session</th><th>IP</th><th>Started</th><th>Commands</th><th></th></tr>
+                {% for sid, ip, started, cmds in sessions %}
+                <tr><td>{{ sid }}</td><td>{{ ip }}</td><td>{{ started }}</td><td>{{ cmds }}</td>
+                    <td><a href="/session/{{ sid }}">Replay &rarr;</a></td></tr>
+                {% endfor %}
+            </table>
+        </div>
     </div>
 
     <script>
@@ -103,6 +113,51 @@ PAGE_TEMPLATE = """
 """
 
 app = Flask(__name__)
+REPLAY_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Session Replay - {{ session_id }}</title>
+    <style>
+        body { font-family: 'Courier New', monospace; background: #0f1115; color: #e6e6e6; margin: 0; padding: 24px; }
+        a { color: #4dd0e1; }
+        .terminal { background: #000; border-radius: 8px; padding: 20px; margin-top: 16px; min-height: 200px; white-space: pre-wrap; }
+        .prompt { color: #4dd0e1; }
+        button { background: #ff6b6b; color: #000; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <a href="/">&larr; Back to dashboard</a>
+    <h2>Session Replay: {{ session_id }}</h2>
+    <button onclick="replay()">&#9654; Play</button>
+    <div class="terminal" id="term"></div>
+
+    <script>
+        const events = {{ events | tojson }};
+        // event tuple order: event_type, username, password, command, tool, url, timestamp
+        async function replay() {
+            const term = document.getElementById('term');
+            term.textContent = '';
+            for (const ev of events) {
+                const [type, username, password, command, tool, url, ts] = ev;
+                let line = '';
+                if (type === 'login_attempt') {
+                    line = `[LOGIN] user=${username} pass=${password}`;
+                } else if (type === 'command') {
+                    line = `root@prod-web01:~# ${command}`;
+                } else if (type === 'download_attempt') {
+                    line = `[DOWNLOAD via ${tool}] ${url}`;
+                } else {
+                    line = `[${type}]`;
+                }
+                term.textContent += line + '\\n';
+                await new Promise(r => setTimeout(r, 500));
+            }
+        }
+    </script>
+</body>
+</html>
+"""
 
 
 @app.route("/")
@@ -113,6 +168,7 @@ def dashboard():
     credentials = db.top_credentials(10)
     downloads = db.recent_downloads(10)
     total_events = db.total_event_count()
+    sessions = db.recent_sessions(15)
 
     return render_template_string(
         PAGE_TEMPLATE,
@@ -124,7 +180,12 @@ def dashboard():
         cmd_values=[row[1] for row in commands],
         credentials=credentials,
         downloads=downloads,
+        sessions=sessions,
     )
+@app.route("/session/<session_id>")
+def replay(session_id):
+    events = db.session_events(session_id)
+    return render_template_string(REPLAY_TEMPLATE, session_id=session_id, events=events)
 
 
 if __name__ == "__main__":

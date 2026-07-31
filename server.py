@@ -13,6 +13,7 @@ import logging
 import os
 import socket
 import threading
+import uuid
 from datetime import datetime, timezone
 
 import paramiko
@@ -45,8 +46,9 @@ def log_event(event: dict):
 
 
 class HoneypotServer(paramiko.ServerInterface):
-    def __init__(self, client_ip):
+    def __init__(self, client_ip, session_id):
         self.client_ip = client_ip
+        self.session_id = session_id
         self.event = threading.Event()
 
     def check_channel_request(self, kind, chanid):
@@ -59,6 +61,7 @@ class HoneypotServer(paramiko.ServerInterface):
         log_event({
             "event": "login_attempt",
             "src_ip": self.client_ip,
+            "session_id": self.session_id,
             "username": username,
             "password": password,
         })
@@ -219,7 +222,7 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         return f"  % Total    % Received % Xferd   Average Speed\n100  1024  100  1024    0     0   saved to {filename}"
 
 
-def handle_shell(channel, client_ip):
+def handle_shell(channel, client_ip, session_id):
     fs = FakeFilesystem()
 
     def prompt_bytes():
@@ -249,6 +252,7 @@ def handle_shell(channel, client_ip):
                     log_event({
                         "event": "command",
                         "src_ip": client_ip,
+                        "session_id": session_id,
                         "command": command,
                     })
 
@@ -271,9 +275,10 @@ def handle_shell(channel, client_ip):
 
 
 def handle_connection(client_socket, client_ip):
+    session_id = str(uuid.uuid4())[:8]  # short id groups all events from this connection
     transport = paramiko.Transport(client_socket)
     transport.add_server_key(ensure_host_key())
-    server = HoneypotServer(client_ip)
+    server = HoneypotServer(client_ip, session_id)
 
     try:
         transport.start_server(server=server)
@@ -287,7 +292,7 @@ def handle_connection(client_socket, client_ip):
 
     server.event.wait(10)
     try:
-        handle_shell(channel, client_ip)
+        handle_shell(channel, client_ip, session_id)
     finally:
         transport.close()
 

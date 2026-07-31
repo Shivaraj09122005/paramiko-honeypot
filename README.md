@@ -18,7 +18,7 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 5 — Persistent SQLite logging
 - [x] Milestone 6 — Flask web dashboard (charts for top IPs/commands/credentials)
 - [x] Milestone 7 — Threat intelligence API (IP reputation/geolocation lookups)
-- [ ] Milestone 8 — Session replay (playback of full attacker sessions)
+- [x] Milestone 8 — Session replay (playback of full attacker sessions)
 - [ ] Milestone 9 — AI command analyzer (LLM-based intent classification)
 - [ ] Milestone 10 — MITRE ATT&CK technique mapping
 - [ ] Milestone 11 — Malware capture (hash + metadata only, never executed)
