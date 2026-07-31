@@ -15,6 +15,7 @@ Then visit http://<vm-ip>:5000 in a browser.
 from flask import Flask, render_template_string
 
 import db
+import threat_intel
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -44,6 +45,15 @@ PAGE_TEMPLATE = """
         <div class="card">
             <h3>Top Source IPs</h3>
             <canvas id="ipChart"></canvas>
+        </div>
+       <div class="card">
+            <h3>IP Intelligence</h3>
+            <table>
+                <tr><th>IP</th><th>Events</th><th>Country</th><th>City</th><th>ISP</th></tr>
+                {% for ip, count, intel in ip_intel %}
+                <tr><td>{{ ip }}</td><td>{{ count }}</td><td>{{ intel.country }}</td><td>{{ intel.city }}</td><td>{{ intel.isp }}</td></tr>
+                {% endfor %}
+            </table>
         </div>
         <div class="card">
             <h3>Top Commands</h3>
@@ -98,6 +108,7 @@ app = Flask(__name__)
 @app.route("/")
 def dashboard():
     ips = db.top_ips(10)
+    ip_intel = [(ip, count, threat_intel.lookup_ip(ip)) for ip, count in ips]
     commands = db.top_commands(10)
     credentials = db.top_credentials(10)
     downloads = db.recent_downloads(10)
@@ -108,6 +119,7 @@ def dashboard():
         total_events=total_events,
         ip_labels=[row[0] for row in ips],
         ip_values=[row[1] for row in ips],
+        ip_intel=ip_intel,
         cmd_labels=[row[0] for row in commands],
         cmd_values=[row[1] for row in commands],
         credentials=credentials,
@@ -116,4 +128,5 @@ def dashboard():
 
 
 if __name__ == "__main__":
+    threat_intel.init_intel_table()
     app.run(host="0.0.0.0", port=5000, debug=False)
