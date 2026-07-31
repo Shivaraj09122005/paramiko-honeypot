@@ -1,5 +1,5 @@
 """
-Fake Filesystem - Milestone 3
+Fake Filesystem - Milestone 3/4
 --------------------------------
 An in-memory virtual filesystem the fake shell can navigate. Directories
 are represented as nested Python dicts; files are represented as plain
@@ -48,7 +48,7 @@ def build_default_tree():
 class FakeFilesystem:
     """
     Tracks a fake current working directory and lets the shell run
-    ls / cd / cat / pwd / mkdir / touch against the in-memory tree.
+    ls / cd / cat / pwd / mkdir / touch / rm against the in-memory tree.
     """
 
     def __init__(self):
@@ -126,3 +126,21 @@ class FakeFilesystem:
     def _resolve_dir(self, path):
         node = self._resolve_node(path)
         return node if isinstance(node, dict) else None
+
+    def add_file(self, name, content):
+        """Create/overwrite a file with given content in the current directory."""
+        self._cwd_dict()[name] = content
+
+    def mkdir(self, name):
+        cwd = self._cwd_dict()
+        if name in cwd:
+            return f"mkdir: cannot create directory '{name}': File exists"
+        cwd[name] = {}
+        return None
+
+    def rm(self, name):
+        cwd = self._cwd_dict()
+        if name not in cwd:
+            return f"rm: cannot remove '{name}': No such file or directory"
+        del cwd[name]
+        return None

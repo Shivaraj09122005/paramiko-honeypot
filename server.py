@@ -1,13 +1,11 @@
 """
-Fake SSH Honeypot Server - Milestone 3
+Fake SSH Honeypot Server - Milestone 4
 ----------------------------------------
 Accepts SSH connections on a chosen port, logs every username/password
 attempt (and the connecting IP), then "succeeds" and drops the attacker
-into a fake shell backed by a real virtual filesystem so their session
-can be recorded and interactively explored.
-
-This is educational / defensive security tooling. Only ever run this on
-a machine you control, isolated from anything sensitive.
+into a fake shell backed by a real virtual filesystem, extended commands,
+and fake wget/curl download capture (URL logging only - never touches the
+real network).
 """
 
 import json
@@ -22,16 +20,15 @@ import paramiko
 from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
-PORT = 2222                      # non-privileged port; use iptables/authbind to map 22 -> 2222 later
+PORT = 2222
 HOST_KEY_PATH = "keys/server_key"
-LOG_PATH = "logs/sessions.jsonl"  # one JSON object per line = one event
+LOG_PATH = "logs/sessions.jsonl"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 log = logging.getLogger("honeypot")
 
 
 def ensure_host_key():
-    """Generate an RSA host key once, on first run, if one doesn't exist yet."""
     if not os.path.exists(HOST_KEY_PATH):
         os.makedirs(os.path.dirname(HOST_KEY_PATH), exist_ok=True)
         log.info("No host key found, generating a new one at %s", HOST_KEY_PATH)
@@ -41,20 +38,12 @@ def ensure_host_key():
 
 
 def log_event(event: dict):
-    """Append one structured event to the JSONL log file."""
     event["timestamp"] = datetime.now(timezone.utc).isoformat()
     with open(LOG_PATH, "a") as f:
         f.write(json.dumps(event) + "\n")
 
 
 class HoneypotServer(paramiko.ServerInterface):
-    """
-    Implements paramiko's server-side callbacks. The key trick for a
-    honeypot: check_auth_password ALWAYS returns success, after logging
-    whatever credentials were tried, so we capture as many attempts and
-    follow-on shell sessions as possible.
-    """
-
     def __init__(self, client_ip):
         self.client_ip = client_ip
         self.event = threading.Event()
@@ -72,7 +61,7 @@ class HoneypotServer(paramiko.ServerInterface):
             "username": username,
             "password": password,
         })
-        return paramiko.AUTH_SUCCESSFUL  # always let them "in"
+        return paramiko.AUTH_SUCCESSFUL
 
     def get_allowed_auths(self, username):
         return "password"
@@ -85,12 +74,7 @@ class HoneypotServer(paramiko.ServerInterface):
         return True
 
 
-def run_command(command, fs: FakeFilesystem):
-    """
-    Interpret one command line against the fake filesystem and return the
-    text output to send back to the attacker (may be empty string).
-    Returns None to signal the session should end (exit/logout).
-    """
+def run_command(command, fs: FakeFilesystem, client_ip):
     if not command:
         return ""
 
@@ -138,15 +122,103 @@ def run_command(command, fs: FakeFilesystem):
     if cmd == "clear":
         return "\x1b[2J\x1b[H"
 
+    if cmd in ("wget", "curl"):
+        return handle_download(cmd, args, fs, client_ip)
+
+    if cmd == "touch":
+        if not args:
+            return "touch: missing file operand"
+        fs.add_file(args[0], "")
+        return ""
+
+    if cmd == "mkdir":
+        if not args:
+            return "mkdir: missing operand"
+        error = fs.mkdir(args[0])
+        return error or ""
+
+    if cmd == "rm":
+        targets = [a for a in args if not a.startswith("-")]
+        if not targets:
+            return "rm: missing operand"
+        error = fs.rm(targets[0])
+        return error or ""
+
+    if cmd == "which":
+        if not args:
+            return ""
+        return f"/usr/bin/{args[0]}"
+
+    if cmd == "history":
+        return fs.cat(".bash_history")
+
+    if cmd == "ps":
+        return (
+            "  PID TTY          TIME CMD\n"
+            "    1 ?        00:00:02 systemd\n"
+            "  842 ?        00:00:00 sshd\n"
+            " 1193 pts/0    00:00:00 bash\n"
+            " 1240 pts/0    00:00:00 ps"
+        )
+
+    if cmd in ("ifconfig", "ip"):
+        return (
+            "eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n"
+            "        inet 10.0.0.5  netmask 255.255.255.0  broadcast 10.0.0.255\n"
+            "        ether 02:42:ac:11:00:05  txqueuelen 0  (Ethernet)"
+        )
+
+    if cmd == "netstat":
+        return (
+            "Active Internet connections\n"
+            "Proto Recv-Q Send-Q Local Address       Foreign Address     State\n"
+            "tcp        0      0 0.0.0.0:2222        0.0.0.0:*           LISTEN\n"
+            "tcp        0      0 0.0.0.0:22222       0.0.0.0:*           LISTEN"
+        )
+
+    if cmd == "sudo":
+        log.warning("Privilege escalation attempt from %s: %r", client_ip, command)
+        log_event({
+            "event": "privilege_escalation_attempt",
+            "src_ip": client_ip,
+            "command": command,
+        })
+        return "root@prod-web01:~# " if not args else run_command(" ".join(args), fs, client_ip)
+
     return f"bash: {cmd}: command not found"
 
 
+def handle_download(tool, args, fs: FakeFilesystem, client_ip):
+    urls = [a for a in args if a.startswith("http://") or a.startswith("https://")]
+    if not urls:
+        return f"{tool}: missing URL"
+
+    url = urls[0]
+    filename = url.rstrip("/").split("/")[-1] or "index.html"
+
+    log.warning("Download attempt from %s via %s: %s", client_ip, tool, url)
+    log_event({
+        "event": "download_attempt",
+        "src_ip": client_ip,
+        "tool": tool,
+        "url": url,
+    })
+
+    fs.add_file(filename, f"[fake honeypot placeholder - attacker tried to fetch {url}]\n")
+
+    if tool == "wget":
+        return (
+            "--2026-07-31 12:00:00--  " + url + "\n"
+            "Resolving host... connected.\n"
+            "HTTP request sent, awaiting response... 200 OK\n"
+            f"Saving to: '{filename}'\n\n"
+            f"{filename}           100%[===================>]  saved\n"
+        )
+    else:
+        return f"  % Total    % Received % Xferd   Average Speed\n100  1024  100  1024    0     0   saved to {filename}"
+
+
 def handle_shell(channel, client_ip):
-    """
-    Fake shell backed by a real virtual filesystem (Milestone 3). Supports
-    ls, cd, cat, pwd, whoami, uname, id, hostname, echo alongside login/
-    command logging.
-    """
     fs = FakeFilesystem()
 
     def prompt_bytes():
@@ -166,7 +238,6 @@ def handle_shell(channel, client_ip):
         if not data:
             break
 
-        # handle backspace / enter minimally so it feels like a real terminal
         for byte in data:
             b = bytes([byte])
             if b in (b"\r", b"\n"):
@@ -180,8 +251,8 @@ def handle_shell(channel, client_ip):
                         "command": command,
                     })
 
-                output = run_command(command, fs)
-                if output is None:  # exit / logout
+                output = run_command(command, fs, client_ip)
+                if output is None:
                     channel.send(b"logout\r\n")
                     channel.close()
                     return
@@ -190,7 +261,7 @@ def handle_shell(channel, client_ip):
                     channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
                 channel.send(prompt_bytes())
                 buffer = b""
-            elif b in (b"\x7f", b"\x08"):  # backspace
+            elif b in (b"\x7f", b"\x08"):
                 buffer = buffer[:-1]
                 channel.send(b"\x08 \x08")
             else:

@@ -14,7 +14,7 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 1 — Project scaffold
 - [x] Milestone 2 — Fake SSH server, logs auth attempts + basic commands
 - [x] Milestone 3 — Virtual filesystem + real command interpreter (`ls`, `cd`, `cat`...)
-- [ ] Milestone 4 — Extended commands + fake file downloads (`wget`/`curl`)
+- [x] Milestone 4 — Extended commands + fake file downloads (`wget`/`curl`)
 - [ ] Milestone 5 — Persistent SQLite logging
 - [ ] Milestone 6 — Flask web dashboard
 - [ ] Milestone 7 — Docker + deployment
