@@ -1,9 +1,10 @@
 """
-Fake SSH Honeypot Server - Milestone 2
+Fake SSH Honeypot Server - Milestone 3
 ----------------------------------------
 Accepts SSH connections on a chosen port, logs every username/password
 attempt (and the connecting IP), then "succeeds" and drops the attacker
-into a minimal fake shell so their session can be recorded.
+into a fake shell backed by a real virtual filesystem so their session
+can be recorded and interactively explored.
 
 This is educational / defensive security tooling. Only ever run this on
 a machine you control, isolated from anything sensitive.
@@ -17,6 +18,8 @@ import threading
 from datetime import datetime, timezone
 
 import paramiko
+
+from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
 PORT = 2222                      # non-privileged port; use iptables/authbind to map 22 -> 2222 later
@@ -82,16 +85,77 @@ class HoneypotServer(paramiko.ServerInterface):
         return True
 
 
+def run_command(command, fs: FakeFilesystem):
+    """
+    Interpret one command line against the fake filesystem and return the
+    text output to send back to the attacker (may be empty string).
+    Returns None to signal the session should end (exit/logout).
+    """
+    if not command:
+        return ""
+
+    parts = command.split()
+    cmd = parts[0]
+    args = parts[1:]
+
+    if cmd in ("exit", "logout"):
+        return None
+
+    if cmd == "pwd":
+        return fs.pwd()
+
+    if cmd == "ls":
+        target = args[0] if args else None
+        return fs.ls(target)
+
+    if cmd == "cd":
+        target = args[0] if args else None
+        error = fs.cd(target)
+        return error or ""
+
+    if cmd == "cat":
+        if not args:
+            return "cat: missing operand"
+        return fs.cat(args[0])
+
+    if cmd == "whoami":
+        return "root"
+
+    if cmd == "uname":
+        if "-a" in args:
+            return "Linux prod-web01 6.1.0-21-amd64 #1 SMP Debian x86_64 GNU/Linux"
+        return "Linux"
+
+    if cmd == "id":
+        return "uid=0(root) gid=0(root) groups=0(root)"
+
+    if cmd == "hostname":
+        return "prod-web01"
+
+    if cmd == "echo":
+        return " ".join(args)
+
+    if cmd == "clear":
+        return "\x1b[2J\x1b[H"
+
+    return f"bash: {cmd}: command not found"
+
+
 def handle_shell(channel, client_ip):
     """
-    Extremely minimal fake shell for Milestone 2: shows a convincing
-    prompt, echoes back whatever the attacker types, and logs every
-    command. Milestone 3 will replace this with a real virtual
-    filesystem and command interpreter.
+    Fake shell backed by a real virtual filesystem (Milestone 3). Supports
+    ls, cd, cat, pwd, whoami, uname, id, hostname, echo alongside login/
+    command logging.
     """
-    prompt = b"root@prod-web01:~# "
+    fs = FakeFilesystem()
+
+    def prompt_bytes():
+        cwd = fs.pwd()
+        short = "~" if cwd == "/root" else cwd
+        return f"root@prod-web01:{short}# ".encode()
+
     channel.send(b"Last login: Tue Jul 29 09:14:02 2026 from 10.0.0.4\r\n")
-    channel.send(prompt)
+    channel.send(prompt_bytes())
 
     buffer = b""
     while True:
@@ -115,13 +179,16 @@ def handle_shell(channel, client_ip):
                         "src_ip": client_ip,
                         "command": command,
                     })
-                if command in ("exit", "logout"):
+
+                output = run_command(command, fs)
+                if output is None:  # exit / logout
                     channel.send(b"logout\r\n")
                     channel.close()
                     return
-                # placeholder response - Milestone 3 will make this real
-                channel.send(f"bash: {command}: command not found\r\n".encode())
-                channel.send(prompt)
+
+                if output:
+                    channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
+                channel.send(prompt_bytes())
                 buffer = b""
             elif b in (b"\x7f", b"\x08"):  # backspace
                 buffer = buffer[:-1]
