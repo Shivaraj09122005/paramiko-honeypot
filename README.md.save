@@ -1,4 +1,5 @@
-# Fake SSH Honeypot (Python)
+
+ Fake SSH Honeypot (Python)
 
 A from-scratch SSH honeypot built with `paramiko`, inspired by the design ideas
 behind [Cowrie](https://github.com/cowrie/cowrie). It logs every login attempt
@@ -16,14 +17,8 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 3 — Virtual filesystem + real command interpreter (`ls`, `cd`, `cat`...)
 - [x] Milestone 4 — Extended commands + fake file downloads (`wget`/`curl`)
 - [x] Milestone 5 — Persistent SQLite logging
-- [x] Milestone 6 — Flask web dashboard (charts for top IPs/commands/credentials)
-- [ ] Milestone 7 — Threat intelligence API (IP reputation/geolocation lookups)
-- [ ] Milestone 8 — Session replay (playback of full attacker sessions)
-- [ ] Milestone 9 — AI command analyzer (LLM-based intent classification)
-- [ ] Milestone 10 — MITRE ATT&CK technique mapping
-- [ ] Milestone 11 — Malware capture (hash + metadata only, never executed)
-- [ ] Milestone 12 — Docker deployment
-- [ ] Milestone 13 — Telegram real-time alerts
+- [ ] Milestone 6 — Flask web dashboard
+- [ ] Milestone 7 — Docker + deployment
 
 ## Architecture
 
@@ -59,13 +54,3 @@ security logging from the ground up.
 ## Roadmap / Next steps
 
 See the Status checklist above — each milestone will be its own commit.
-
-## Running the dashboard
-
-In a separate terminal, with the honeypot already running:
-
-    python dashboard.py
-
-Visit http://localhost:5000 (or your VM's IP) to see live charts of
-top attacker IPs, top commands run, credentials tried, and recent
-download attempts.

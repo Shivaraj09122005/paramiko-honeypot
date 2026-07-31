@@ -101,3 +101,28 @@ def top_ips(limit=10):
     ).fetchall()
     conn.close()
     return rows
+
+
+def recent_downloads(limit=10):
+    """Return the most recent wget/curl download attempts."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """
+        SELECT tool, url, timestamp
+        FROM events
+        WHERE event_type = 'download_attempt'
+        ORDER BY id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return rows
+
+
+def total_event_count():
+    """Return the total number of events logged."""
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT COUNT(*) FROM events").fetchone()
+    conn.close()
+    return row[0]
