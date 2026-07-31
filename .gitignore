@@ -4,3 +4,4 @@ __pycache__/
 keys/
 logs/*.jsonl
 .DS_Store
+logs/*.db

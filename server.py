@@ -16,7 +16,7 @@ import threading
 from datetime import datetime, timezone
 
 import paramiko
-
+import db
 from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
@@ -41,6 +41,7 @@ def log_event(event: dict):
     event["timestamp"] = datetime.now(timezone.utc).isoformat()
     with open(LOG_PATH, "a") as f:
         f.write(json.dumps(event) + "\n")
+    db.insert_event(event)
 
 
 class HoneypotServer(paramiko.ServerInterface):
@@ -294,6 +295,7 @@ def handle_connection(client_socket, client_ip):
 def main():
     ensure_host_key()
     os.makedirs("logs", exist_ok=True)
+    db.init_db()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
