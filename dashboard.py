@@ -17,6 +17,7 @@ from flask import Flask, render_template_string
 import db
 import threat_intel
 import analyzer
+import attck_mapping
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -81,6 +82,17 @@ PAGE_TEMPLATE = """
     <div class="card">
             <h3>Command Intent Breakdown</h3>
             <canvas id="intentChart"></canvas>
+        </div>
+       <div class="card">
+            <h3>MITRE ATT&amp;CK Mapping</h3>
+            <table>
+                <tr><th>Category</th><th>Count</th><th>Tactic</th><th>Technique</th></tr>
+                {% for category, count, tactic_id, tactic_name, tech_id, tech_name in attck_rows %}
+                <tr><td>{{ category }}</td><td>{{ count }}</td>
+                    <td>{{ tactic_id }} {{ tactic_name }}</td>
+                    <td>{{ tech_id }} {{ tech_name }}</td></tr>
+                {% endfor %}
+            </table>
         </div>
         <div class="card">
             <h3>Recent Sessions</h3>
@@ -188,6 +200,11 @@ def dashboard():
         category, _risk = analyzer.classify_and_score(command)
         category_totals[category] = category_totals.get(category, 0) + count
 
+    attck_rows = []
+    for category, count in category_totals.items():
+        info = attck_mapping.get_attck_info(category)
+        attck_rows.append((category, count, info["tactic_id"], info["tactic_name"], info["technique_id"], info["technique_name"]))
+
     return render_template_string(
         PAGE_TEMPLATE,
         total_events=total_events,
@@ -201,6 +218,7 @@ def dashboard():
         sessions=sessions,
         category_labels=list(category_totals.keys()),
         category_values=list(category_totals.values()),
+        attck_rows=attck_rows,
     )
 @app.route("/session/<session_id>")
 def replay(session_id):
