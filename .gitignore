@@ -5,3 +5,4 @@ keys/
 logs/*.jsonl
 .DS_Store
 logs/*.db
+*.save
