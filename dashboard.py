@@ -16,6 +16,7 @@ from flask import Flask, render_template_string
 
 import db
 import threat_intel
+import analyzer
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -78,6 +79,10 @@ PAGE_TEMPLATE = """
             </table>
         </div>
     <div class="card">
+            <h3>Command Intent Breakdown</h3>
+            <canvas id="intentChart"></canvas>
+        </div>
+        <div class="card">
             <h3>Recent Sessions</h3>
             <table>
                 <tr><th>Session</th><th>IP</th><th>Started</th><th>Commands</th><th></th></tr>
@@ -106,6 +111,14 @@ PAGE_TEMPLATE = """
                 datasets: [{ label: 'Times run', data: {{ cmd_values | tojson }}, backgroundColor: '#ff6b6b' }]
             },
             options: { indexAxis: 'y', plugins: { legend: { display: false } } }
+        });
+
+        new Chart(document.getElementById('intentChart'), {
+            type: 'doughnut',
+            data: {
+                labels: {{ category_labels | tojson }},
+                datasets: [{ data: {{ category_values | tojson }}, backgroundColor: ['#4dd0e1', '#ff6b6b', '#ffd166', '#06d6a0', '#a78bfa', '#f77f00'] }]
+            }
         });
     </script>
 </body>
@@ -170,6 +183,11 @@ def dashboard():
     total_events = db.total_event_count()
     sessions = db.recent_sessions(15)
 
+    category_totals = {}
+    for command, count in db.all_command_counts():
+        category, _risk = analyzer.classify_and_score(command)
+        category_totals[category] = category_totals.get(category, 0) + count
+
     return render_template_string(
         PAGE_TEMPLATE,
         total_events=total_events,
@@ -181,6 +199,8 @@ def dashboard():
         credentials=credentials,
         downloads=downloads,
         sessions=sessions,
+        category_labels=list(category_totals.keys()),
+        category_values=list(category_totals.values()),
     )
 @app.route("/session/<session_id>")
 def replay(session_id):

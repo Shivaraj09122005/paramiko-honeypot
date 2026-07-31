@@ -176,3 +176,19 @@ def session_events(session_id):
     ).fetchall()
     conn.close()
     return rows
+
+
+def all_command_counts():
+    """Return every distinct command with how many times it was run -
+    used to feed the Milestone 9 intent-category breakdown."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """
+        SELECT command, COUNT(*) as count
+        FROM events
+        WHERE event_type = 'command'
+        GROUP BY command
+        """
+    ).fetchall()
+    conn.close()
+    return rows
