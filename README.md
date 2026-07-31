@@ -16,8 +16,14 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 3 — Virtual filesystem + real command interpreter (`ls`, `cd`, `cat`...)
 - [x] Milestone 4 — Extended commands + fake file downloads (`wget`/`curl`)
 - [x] Milestone 5 — Persistent SQLite logging
-- [ ] Milestone 6 — Flask web dashboard
-- [ ] Milestone 7 — Docker + deployment
+- [ ] Milestone 6 — Flask web dashboard (charts for top IPs/commands/credentials)
+- [ ] Milestone 7 — Threat intelligence API (IP reputation/geolocation lookups)
+- [ ] Milestone 8 — Session replay (playback of full attacker sessions)
+- [ ] Milestone 9 — AI command analyzer (LLM-based intent classification)
+- [ ] Milestone 10 — MITRE ATT&CK technique mapping
+- [ ] Milestone 11 — Malware capture (hash + metadata only, never executed)
+- [ ] Milestone 12 — Docker deployment
+- [ ] Milestone 13 — Telegram real-time alerts
 
 ## Architecture
 
