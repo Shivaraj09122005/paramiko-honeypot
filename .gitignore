@@ -8,3 +8,4 @@ logs/*.db
 *.save
 quarantine/
 .env
+.env
