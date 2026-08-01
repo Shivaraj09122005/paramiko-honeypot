@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import paramiko
 import db
 import malware_capture
+import telegram_alerts
 from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
@@ -66,7 +67,8 @@ class HoneypotServer(paramiko.ServerInterface):
             "username": username,
             "password": password,
         })
-        return paramiko.AUTH_SUCCESSFUL
+        telegram_alerts.alert_login(self.client_ip, username, password)
+        return paramiko.AUTH_SUCCESSFUL  # always let them "in"
 
     def get_allowed_auths(self, username):
         return "password"
@@ -188,6 +190,7 @@ def run_command(command, fs: FakeFilesystem, client_ip):
             "src_ip": client_ip,
             "command": command,
         })
+        telegram_alerts.alert_privilege_escalation(client_ip, command)
         return "root@prod-web01:~# " if not args else run_command(" ".join(args), fs, client_ip)
 
     return f"bash: {cmd}: command not found"
@@ -208,6 +211,7 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         "tool": tool,
         "url": url,
     })
+    telegram_alerts.alert_download(client_ip, tool, url)
 
     # Attempt a real, size-capped, timeout-bounded fetch in the background
     # so a slow/hanging URL never freezes the attacker's fake shell. Every

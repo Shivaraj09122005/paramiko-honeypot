@@ -15,7 +15,7 @@ DB_PATH = "logs/honeypot.db"
 def init_db():
     """Create the events table if it doesn't already exist, and migrate
     in the session_id column for older databases that predate it."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS events (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -44,7 +44,7 @@ def insert_event(event: dict):
     dict already used for the JSONL logs (event, src_ip, session_id,
     plus whichever of username/password/command/tool/url apply).
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.execute(
         """
         INSERT INTO events (timestamp, src_ip, event_type, username, password, command, tool, url, session_id)
@@ -67,7 +67,7 @@ def insert_event(event: dict):
 
 
 def top_credentials(limit=10):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT username, password, COUNT(*) as attempts
@@ -84,7 +84,7 @@ def top_credentials(limit=10):
 
 
 def top_commands(limit=10):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT command, COUNT(*) as count
@@ -101,7 +101,7 @@ def top_commands(limit=10):
 
 
 def top_ips(limit=10):
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT src_ip, COUNT(*) as events
@@ -118,7 +118,7 @@ def top_ips(limit=10):
 
 def recent_downloads(limit=10):
     """Return the most recent wget/curl download attempts."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT tool, url, timestamp
@@ -135,7 +135,7 @@ def recent_downloads(limit=10):
 
 def total_event_count():
     """Return the total number of events logged."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     row = conn.execute("SELECT COUNT(*) FROM events").fetchone()
     conn.close()
     return row[0]
@@ -145,7 +145,7 @@ def recent_sessions(limit=15):
     Return recent sessions summarized: session_id, src_ip, start time,
     and how many commands were run - for the replay list on the dashboard.
     """
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT session_id, src_ip, MIN(timestamp) as started,
@@ -164,7 +164,7 @@ def recent_sessions(limit=15):
 
 def session_events(session_id):
     """Return every event for one session, in chronological order."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT event_type, username, password, command, tool, url, timestamp
@@ -181,7 +181,7 @@ def session_events(session_id):
 def all_command_counts():
     """Return every distinct command with how many times it was run -
     used to feed the Milestone 9 intent-category breakdown."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     rows = conn.execute(
         """
         SELECT command, COUNT(*) as count

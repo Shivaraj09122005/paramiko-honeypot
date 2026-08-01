@@ -23,7 +23,7 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 10 — MITRE ATT&CK technique mapping
 - [x] Milestone 11 — Malware capture (hash + metadata only, never executed)
 - [x] Milestone 12 — Docker deployment
-- [ ] Milestone 13 — Telegram real-time alerts
+- [x] Milestone 13 — Telegram real-time alerts
 
 ## Architecture
 
