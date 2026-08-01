@@ -4,8 +4,8 @@ Fake SSH Honeypot Server - Milestone 4
 Accepts SSH connections on a chosen port, logs every username/password
 attempt (and the connecting IP), then "succeeds" and drops the attacker
 into a fake shell backed by a real virtual filesystem, extended commands,
-and fake wget/curl download capture (URL logging only - never touches the
-real network).
+and fake wget/curl download capture (URL logging always; optional real
+capture + hashing + VirusTotal check via malware_capture.py - see there).
 """
 
 import json
@@ -17,9 +17,9 @@ import uuid
 from datetime import datetime, timezone
 
 import paramiko
+
 import db
 import malware_capture
-import telegram_alerts
 from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
@@ -67,8 +67,7 @@ class HoneypotServer(paramiko.ServerInterface):
             "username": username,
             "password": password,
         })
-        telegram_alerts.alert_login(self.client_ip, username, password)
-        return paramiko.AUTH_SUCCESSFUL  # always let them "in"
+        return paramiko.AUTH_SUCCESSFUL
 
     def get_allowed_auths(self, username):
         return "password"
@@ -91,98 +90,78 @@ def run_command(command, fs: FakeFilesystem, client_ip):
 
     if cmd in ("exit", "logout"):
         return None
-
     if cmd == "pwd":
         return fs.pwd()
-
     if cmd == "ls":
         target = args[0] if args else None
         return fs.ls(target)
-
     if cmd == "cd":
         target = args[0] if args else None
         error = fs.cd(target)
         return error or ""
-
     if cmd == "cat":
         if not args:
             return "cat: missing operand"
         return fs.cat(args[0])
-
     if cmd == "whoami":
         return "root"
-
     if cmd == "uname":
         if "-a" in args:
             return "Linux prod-web01 6.1.0-21-amd64 #1 SMP Debian x86_64 GNU/Linux"
         return "Linux"
-
     if cmd == "id":
         return "uid=0(root) gid=0(root) groups=0(root)"
-
     if cmd == "hostname":
         return "prod-web01"
-
     if cmd == "echo":
         return " ".join(args)
-
     if cmd == "clear":
         return "\x1b[2J\x1b[H"
-
     if cmd in ("wget", "curl"):
         return handle_download(cmd, args, fs, client_ip)
-
     if cmd == "touch":
         if not args:
             return "touch: missing file operand"
         fs.add_file(args[0], "")
         return ""
-
     if cmd == "mkdir":
         if not args:
             return "mkdir: missing operand"
         error = fs.mkdir(args[0])
         return error or ""
-
     if cmd == "rm":
         targets = [a for a in args if not a.startswith("-")]
         if not targets:
             return "rm: missing operand"
         error = fs.rm(targets[0])
         return error or ""
-
     if cmd == "which":
         if not args:
             return ""
         return f"/usr/bin/{args[0]}"
-
     if cmd == "history":
         return fs.cat(".bash_history")
-
     if cmd == "ps":
         return (
-            "  PID TTY          TIME CMD\n"
+            "  PID TTY      TIME CMD\n"
             "    1 ?        00:00:02 systemd\n"
             "  842 ?        00:00:00 sshd\n"
             " 1193 pts/0    00:00:00 bash\n"
             " 1240 pts/0    00:00:00 ps"
         )
-
     if cmd in ("ifconfig", "ip"):
         return (
             "eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n"
             "        inet 10.0.0.5  netmask 255.255.255.0  broadcast 10.0.0.255\n"
             "        ether 02:42:ac:11:00:05  txqueuelen 0  (Ethernet)"
         )
-
     if cmd == "netstat":
         return (
             "Active Internet connections\n"
-            "Proto Recv-Q Send-Q Local Address       Foreign Address     State\n"
-            "tcp        0      0 0.0.0.0:2222        0.0.0.0:*           LISTEN\n"
-            "tcp        0      0 0.0.0.0:22222       0.0.0.0:*           LISTEN"
+            "Proto Recv-Q Send-Q Local Address           Foreign Address         State\n"
+            "tcp        0      0 0.0.0.0:2222            0.0.0.0:*               LISTEN\n"
+            "tcp        0      0 0.0.0.0:22222           0.0.0.0:*               LISTEN"
         )
-
     if cmd == "sudo":
         log.warning("Privilege escalation attempt from %s: %r", client_ip, command)
         log_event({
@@ -190,7 +169,6 @@ def run_command(command, fs: FakeFilesystem, client_ip):
             "src_ip": client_ip,
             "command": command,
         })
-        telegram_alerts.alert_privilege_escalation(client_ip, command)
         return "root@prod-web01:~# " if not args else run_command(" ".join(args), fs, client_ip)
 
     return f"bash: {cmd}: command not found"
@@ -211,11 +189,10 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         "tool": tool,
         "url": url,
     })
-    telegram_alerts.alert_download(client_ip, tool, url)
 
-    # Attempt a real, size-capped, timeout-bounded fetch in the background
-    # so a slow/hanging URL never freezes the attacker's fake shell. Every
-    # captured byte gets quarantined read-only and hashed - never executed.
+    # Milestone 11: real capture, hashed + quarantined, never executed
+    # (see malware_capture.py for the safety rules). Runs in a background
+    # thread so a slow/hanging URL never blocks the attacker's fake shell.
     threading.Thread(
         target=malware_capture.capture,
         args=(url, tool, client_ip),
@@ -230,10 +207,10 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
             "Resolving host... connected.\n"
             "HTTP request sent, awaiting response... 200 OK\n"
             f"Saving to: '{filename}'\n\n"
-            f"{filename}           100%[===================>]  saved\n"
+            f"{filename}       100%[===================>]  saved\n"
         )
     else:
-        return f"  % Total    % Received % Xferd   Average Speed\n100  1024  100  1024    0     0   saved to {filename}"
+        return f"  % Total    % Received % Xferd  Average Speed\n100  1024  100  1024    0     0  saved to {filename}"
 
 
 def handle_shell(channel, client_ip, session_id):
@@ -269,15 +246,13 @@ def handle_shell(channel, client_ip, session_id):
                         "session_id": session_id,
                         "command": command,
                     })
-
-                output = run_command(command, fs, client_ip)
-                if output is None:
-                    channel.send(b"logout\r\n")
-                    channel.close()
-                    return
-
-                if output:
-                    channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
+                    output = run_command(command, fs, client_ip)
+                    if output is None:
+                        channel.send(b"logout\r\n")
+                        channel.close()
+                        return
+                    if output:
+                        channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
                 channel.send(prompt_bytes())
                 buffer = b""
             elif b in (b"\x7f", b"\x08"):
@@ -292,8 +267,8 @@ def handle_connection(client_socket, client_ip):
     session_id = str(uuid.uuid4())[:8]  # short id groups all events from this connection
     transport = paramiko.Transport(client_socket)
     transport.add_server_key(ensure_host_key())
-    server = HoneypotServer(client_ip, session_id)
 
+    server = HoneypotServer(client_ip, session_id)
     try:
         transport.start_server(server=server)
     except paramiko.SSHException:
@@ -305,6 +280,7 @@ def handle_connection(client_socket, client_ip):
         return
 
     server.event.wait(10)
+
     try:
         handle_shell(channel, client_ip, session_id)
     finally:

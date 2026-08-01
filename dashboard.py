@@ -1,4 +1,4 @@
-k"""
+"""
 Web Dashboard - Milestone 6
 -------------------------------
 A small Flask app that reads from the same SQLite database the honeypot
@@ -19,6 +19,7 @@ import db
 import threat_intel
 import analyzer
 import attck_mapping
+import malware_capture
 
 # Change this to your own repo URL if you fork the project.
 GITHUB_REPO_URL = "https://github.com/Shivaraj09122005/paramiko-honeypot"
@@ -320,6 +321,30 @@ PAGE_TEMPLATE = """
 
     <div class="card">
       <div class="card-header">
+        <div class="card-icon" style="background:rgba(249,112,102,0.15); color:var(--accent-2);">🧪</div>
+        <h3>Captured Malware Samples (VirusTotal)</h3>
+      </div>
+      <div class="card-desc">Quarantined, hashed, never executed &mdash; verdicts via VirusTotal hash lookup.</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>Captured</th><th>IP</th><th>Tool</th><th>SHA-256</th><th>Size</th><th>Status</th><th>VT Verdict</th></tr>
+          {% for sha256, url, tool, src_ip, size_bytes, status, captured_at, vt_verdict, vt_malicious, vt_total in malware_samples %}
+          <tr>
+            <td>{{ captured_at }}</td>
+            <td>{{ src_ip }}</td>
+            <td>{{ tool }}</td>
+            <td title="{{ url }}">{{ sha256[:12] + '…' if sha256 else '-' }}</td>
+            <td>{{ size_bytes if size_bytes is not none else '-' }}</td>
+            <td>{{ status }}</td>
+            <td>{{ vt_verdict if vt_verdict else '-' }}{% if vt_malicious is not none and vt_total is not none %} ({{ vt_malicious }}/{{ vt_total }}){% endif %}</td>
+          </tr>
+          {% endfor %}
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
         <div class="card-icon" style="background:rgba(255,180,84,0.15); color:var(--accent-3);">🕓</div>
         <h3>Recent Attacker Sessions</h3>
       </div>
@@ -486,6 +511,7 @@ def dashboard():
     downloads = db.recent_downloads(10)
     total_events = db.total_event_count()
     sessions = db.recent_sessions(15)
+    malware_samples = malware_capture.recent_samples(10)
 
     category_totals = {}
     for command, count in db.all_command_counts():
@@ -511,6 +537,7 @@ def dashboard():
         category_labels=list(category_totals.keys()),
         category_values=list(category_totals.values()),
         attck_rows=attck_rows,
+        malware_samples=malware_samples,
         github_url=GITHUB_REPO_URL,
     )
 
@@ -523,4 +550,5 @@ def replay(session_id):
 
 if __name__ == "__main__":
     threat_intel.init_intel_table()
+    malware_capture.init_samples_table()
     app.run(host="0.0.0.0", port=5000, debug=False)
