@@ -18,6 +18,7 @@ import db
 import threat_intel
 import analyzer
 import attck_mapping
+import malware_capture
 
 PAGE_TEMPLATE = """
 <!DOCTYPE html>
@@ -94,6 +95,34 @@ PAGE_TEMPLATE = """
                 {% endfor %}
             </table>
         </div>
+       <div class="card">
+            <h3>Captured Samples (quarantined, never executed)</h3>
+            <table>
+                <tr><th>SHA256</th><th>URL</th><th>Tool</th><th>Size</th><th>VirusTotal Verdict</th></tr>
+                {% for sha256, url, tool, src_ip, size, status, ts, vt_verdict, vt_malicious, vt_total in samples %}
+                <tr><td>{{ sha256[:16] if sha256 else '-' }}...</td><td>{{ url }}</td><td>{{ tool }}</td>
+                    <td>{{ size or '-' }}</td>
+                    <td>
+                        {% if vt_verdict == 'malicious' %}
+                            🔴 Malicious ({{ vt_malicious }}/{{ vt_total }})
+                        {% elif vt_verdict == 'suspicious' %}
+                            🟡 Suspicious ({{ vt_malicious }}/{{ vt_total }})
+                        {% elif vt_verdict == 'clean' %}
+                            🟢 Clean (0/{{ vt_total }})
+                        {% elif vt_verdict == 'not_found' %}
+                            ⚪ Not in VT database
+                        {% elif vt_verdict == 'no_api_key' %}
+                            ⚪ VT lookup not configured
+                        {% else %}
+                            ⚪ {{ vt_verdict or status }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        <div class="card">
+            <h3>Recent Sessions</h3>
         <div class="card">
             <h3>Recent Sessions</h3>
             <table>
@@ -200,6 +229,8 @@ def dashboard():
         category, _risk = analyzer.classify_and_score(command)
         category_totals[category] = category_totals.get(category, 0) + count
 
+    samples = malware_capture.recent_samples(15)
+
     attck_rows = []
     for category, count in category_totals.items():
         info = attck_mapping.get_attck_info(category)
@@ -219,6 +250,7 @@ def dashboard():
         category_labels=list(category_totals.keys()),
         category_values=list(category_totals.values()),
         attck_rows=attck_rows,
+        samples=samples,
     )
 @app.route("/session/<session_id>")
 def replay(session_id):

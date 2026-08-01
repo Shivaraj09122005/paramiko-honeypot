@@ -21,7 +21,7 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 8 — Session replay (playback of full attacker sessions)
 - [x] Milestone 9 — AI command analyzer (LLM-based intent classification)
 - [x] Milestone 10 — MITRE ATT&CK technique mapping
-- [ ] Milestone 11 — Malware capture (hash + metadata only, never executed)
+- [x] Milestone 11 — Malware capture (hash + metadata only, never executed)
 - [ ] Milestone 12 — Docker deployment
 - [ ] Milestone 13 — Telegram real-time alerts
 

@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 
 import paramiko
 import db
+import malware_capture
 from fake_fs import FakeFilesystem
 
 HOST = "0.0.0.0"
@@ -208,6 +209,15 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         "url": url,
     })
 
+    # Attempt a real, size-capped, timeout-bounded fetch in the background
+    # so a slow/hanging URL never freezes the attacker's fake shell. Every
+    # captured byte gets quarantined read-only and hashed - never executed.
+    threading.Thread(
+        target=malware_capture.capture,
+        args=(url, tool, client_ip),
+        daemon=True,
+    ).start()
+
     fs.add_file(filename, f"[fake honeypot placeholder - attacker tried to fetch {url}]\n")
 
     if tool == "wget":
@@ -301,6 +311,7 @@ def main():
     ensure_host_key()
     os.makedirs("logs", exist_ok=True)
     db.init_db()
+    malware_capture.init_samples_table()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

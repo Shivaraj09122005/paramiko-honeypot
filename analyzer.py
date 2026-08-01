@@ -31,14 +31,20 @@ RISK_BY_CATEGORY = {
 }
 
 
+import re
+
+
 def classify_command(command: str) -> str:
-    """Return the best-matching intent category for a command string."""
+    """Return the best-matching intent category for a command string,
+    using whole-word matching so keywords like 'ps' don't falsely match
+    inside unrelated substrings like 'https'."""
     if not command:
         return "Uncategorized"
     lowered = command.lower()
     for category, keywords in CATEGORY_RULES:
         for kw in keywords:
-            if kw in lowered:
+            pattern = r"\b" + re.escape(kw) + r"\b"
+            if re.search(pattern, lowered):
                 return category
     return "Uncategorized"
 
