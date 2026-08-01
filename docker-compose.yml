@@ -1,0 +1,30 @@
+
+services:
+  honeypot:
+    build: .
+    container_name: honeypot-server
+    command: python server.py
+    ports:
+      - "2222:2222"
+    volumes:
+      - ./logs:/app/logs
+      - ./keys:/app/keys
+      - ./quarantine:/app/quarantine
+    environment:
+      - VT_API_KEY=${VT_API_KEY}
+    restart: unless-stopped
+
+  dashboard:
+    build: .
+    container_name: honeypot-dashboard
+    command: python dashboard.py
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./logs:/app/logs
+      - ./quarantine:/app/quarantine
+    environment:
+      - VT_API_KEY=${VT_API_KEY}
+    depends_on:
+      - honeypot
+    restart: unless-stopped

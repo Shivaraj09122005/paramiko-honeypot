@@ -22,7 +22,7 @@ a full fake shell with a virtual filesystem and a web analytics dashboard.
 - [x] Milestone 9 — AI command analyzer (LLM-based intent classification)
 - [x] Milestone 10 — MITRE ATT&CK technique mapping
 - [x] Milestone 11 — Malware capture (hash + metadata only, never executed)
-- [ ] Milestone 12 — Docker deployment
+- [x] Milestone 12 — Docker deployment
 - [ ] Milestone 13 — Telegram real-time alerts
 
 ## Architecture
@@ -69,3 +69,34 @@ In a separate terminal, with the honeypot already running:
 Visit http://localhost:5000 (or your VM's IP) to see live charts of
 top attacker IPs, top commands run, credentials tried, and recent
 download attempts.
+
+## Running with Docker (recommended)
+
+The entire project (honeypot + dashboard) runs as two containers sharing
+persistent volumes for logs, keys, and quarantined samples.
+
+    echo "VT_API_KEY=your_virustotal_key_here" > .env
+    docker compose build
+    docker compose up -d
+
+Test the honeypot:
+
+    ssh -p 2222 anyuser@localhost
+
+View the dashboard at http://localhost:5000
+
+Stop everything:
+
+    docker compose down
+
+### Real-world deployment note
+
+If deploying on a real cloud server, do NOT expose the dashboard
+(port 5000) directly to the internet - it shows attacker IPs, tried
+credentials, and captured malware hashes. Instead, access it through
+an SSH tunnel:
+
+    ssh -L 5000:localhost:5000 youruser@your-server-ip
+
+Then open http://localhost:5000 in your own browser - nothing is
+exposed publicly.

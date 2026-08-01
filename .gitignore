@@ -7,3 +7,4 @@ logs/*.jsonl
 logs/*.db
 *.save
 quarantine/
+.env
