@@ -22,6 +22,7 @@ import db
 import malware_capture
 import telegram_alerts
 from fake_fs import FakeFilesystem
+from users import get_user_identity
 
 HOST = "0.0.0.0"
 PORT = 2222
@@ -53,6 +54,8 @@ class HoneypotServer(paramiko.ServerInterface):
         self.client_ip = client_ip
         self.session_id = session_id
         self.event = threading.Event()
+        self.username = None
+        self.identity = None
 
     def check_channel_request(self, kind, chanid):
         if kind == "session":
@@ -61,6 +64,8 @@ class HoneypotServer(paramiko.ServerInterface):
 
     def check_auth_password(self, username, password):
         log.info("Login attempt from %s -> user=%r pass=%r", self.client_ip, username, password)
+        self.username = username
+        self.identity = get_user_identity(username)
         log_event({
             "event": "login_attempt",
             "src_ip": self.client_ip,
@@ -82,9 +87,12 @@ class HoneypotServer(paramiko.ServerInterface):
         return True
 
 
-def run_command(command, fs: FakeFilesystem, client_ip):
+def run_command(command, fs: FakeFilesystem, client_ip, username="root", identity=None):
     if not command:
         return ""
+
+    if identity is None:
+        identity = {"uid": 0, "gid": 0, "home": "/root", "sudoer": True}
 
     parts = command.split()
     cmd = parts[0]
@@ -106,13 +114,15 @@ def run_command(command, fs: FakeFilesystem, client_ip):
             return "cat: missing operand"
         return fs.cat(args[0])
     if cmd == "whoami":
-        return "root"
+        return username
     if cmd == "uname":
         if "-a" in args:
             return "Linux prod-web01 6.1.0-21-amd64 #1 SMP Debian x86_64 GNU/Linux"
         return "Linux"
     if cmd == "id":
-        return "uid=0(root) gid=0(root) groups=0(root)"
+        uid, gid = identity["uid"], identity["gid"]
+        return f"uid={uid}({username}) gid={gid}({username}) groups={gid}({username})"
+    
     if cmd == "hostname":
         return "prod-web01"
     if cmd == "echo":
@@ -169,13 +179,141 @@ def run_command(command, fs: FakeFilesystem, client_ip):
         log_event({
             "event": "privilege_escalation_attempt",
             "src_ip": client_ip,
+            "username": username,
             "command": command,
         })
         telegram_alerts.alert_privilege_escalation(client_ip, command)
-        return "root@prod-web01:~# " if not args else run_command(" ".join(args), fs, client_ip)
+        if not identity.get("sudoer", False):
+            return f"{username} is not in the sudoers file.  This incident will be reported."
+        return "" if not args else run_command(" ".join(args), fs, client_ip, "root", {"uid": 0, "gid": 0, "home": "/root", "sudoer": True})
 
     return f"bash: {cmd}: command not found"
+    if cmd == "hostname":
+        return "prod-web01"
+    if cmd == "echo":
+        return " ".join(args)
+    if cmd == "clear":
+        return "\x1b[2J\x1b[H"
+    if cmd in ("wget", "curl"):
+        return handle_download(cmd, args, fs, client_ip)
+    if cmd == "touch":
+        if not args:
+            return "touch: missing file operand"
+        fs.add_file(args[0], "")
+        return ""
+    if cmd == "mkdir":
+        if not args:
+            return "mkdir: missing operand"
+        error = fs.mkdir(args[0])
+        return error or ""
+    if cmd == "rm":
+        targets = [a for a in args if not a.startswith("-")]
+        if not targets:
+            return "rm: missing operand"
+        error = fs.rm(targets[0])
+        return error or ""
+    if cmd == "which":
+        if not args:
+            return ""
+        return f"/usr/bin/{args[0]}"
+    if cmd == "history":
+        return fs.cat(".bash_history")
+    if cmd == "ps":
+        return (
+            "  PID TTY      TIME CMD\n"
+            "    1 ?        00:00:02 systemd\n"
+            "  842 ?        00:00:00 sshd\n"
+            " 1193 pts/0    00:00:00 bash\n"
+            " 1240 pts/0    00:00:00 ps"
+        )
+    if cmd in ("ifconfig", "ip"):
+        return (
+            "eth0: flags=4163<UP,BROADCAST,RUNNING,MULTICAST>  mtu 1500\n"
+            "        inet 10.0.0.5  netmask 255.255.255.0  broadcast 10.0.0.255\n"
+            "        ether 02:42:ac:11:00:05  txqueuelen 0  (Ethernet)"
+        )
+    if cmd == "netstat":
+        return (
+            "Active Internet connections\n"
+            "Proto Recv-Q Send-Q Local Address           Foreign Address         State\n"
+            "tcp        0      0 0.0.0.0:2222            0.0.0.0:*               LISTEN\n"
+            "tcp        0      0 0.0.0.0:22222           0.0.0.0:*               LISTEN"
+        )
+    if cmd == "chmod":
+        return ""
+    if cmd == "chown":
+        return ""
+    if cmd == "passwd":
+        return f"Changing password for {username}.\nCurrent password: "
+    if cmd in ("useradd", "adduser"):
+        if not args:
+            return f"usage: {cmd} username"
+        return ""
+    if cmd == "userdel":
+        return ""
+    if cmd == "crontab":
+        if "-l" in args:
+            return "no crontab for " + username
+        return ""
+    if cmd == "find":
+        return ""
+    if cmd == "grep":
+        return ""
+    if cmd == "df":
+        return (
+            "Filesystem     1K-blocks    Used Available Use% Mounted on\n"
+            "/dev/sda1       20510780 8443212  11015200  44% /\n"
+            "tmpfs             999999       0    999999   0% /dev/shm"
+        )
+    if cmd == "du":
+        return "4.0K\t."
+    if cmd == "free":
+        return (
+            "              total        used        free      shared\n"
+            "Mem:        2048576      612344     1101234       12456\n"
+            "Swap:       1048572           0     1048572"
+        )
+    if cmd == "top" or cmd == "htop":
+        return (
+            "top - 19:40:12 up 3 days,  2:14,  1 user,  load average: 0.08, 0.05, 0.01\n"
+            "Tasks:  98 total,   1 running,  97 sleeping\n"
+            "%Cpu(s):  1.3 us,  0.7 sy,  0.0 ni, 97.9 id\n"
+            "MiB Mem :   2001.0 total,   1075.4 free,    598.0 used,    327.6 buff/cache"
+        )
+    if cmd == "env" or cmd == "export":
+        return f"HOME=/{identity['home']}\nUSER={username}\nSHELL=/bin/bash\nPATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+    if cmd in ("service", "systemctl"):
+        return "nginx.service - active (running)"
+    if cmd in ("nano", "vim", "vi"):
+        return ""
+    if cmd == "ssh":
+        return "ssh: connect to host: Connection refused"
+    if cmd == "scp":
+        return "scp: connect to host: Connection refused"
+    if cmd == "nmap":
+        return "Starting Nmap...\nHost seems down. Try -Pn."
+    if cmd == "nc" or cmd == "ncat" or cmd == "netcat":
+        return ""
+    if cmd == "apt" or cmd == "apt-get":
+        return "Reading package lists... Done\nAll packages are up to date."
+    if cmd == "dpkg":
+        return ""
+    if cmd == "uptime":
+        return "19:40:12 up 3 days,  2:14,  1 user,  load average: 0.08, 0.05, 0.01"
+    if cmd == "date":
+        return "Sat Aug  1 19:40:12 UTC 2026"
+    if cmd == "w" or cmd == "who":
+        return f"{username}     pts/0        10.0.0.4         19:40"
+    if cmd == "last":
+        return f"{username}     pts/0        10.0.0.4    Sat Aug  1 19:40   still logged in"
+    if cmd == "groups":
+        return username
+    if cmd == "man":
+        return "" if not args else f"No manual entry for {args[0]}"
+    if cmd == "lscpu":
+        return "Architecture:        x86_64\nCPU(s):              4\nModel name:          Intel(R) Xeon(R) CPU"
 
+    return f"bash: {cmd}: command not found"
 
 def handle_download(tool, args, fs: FakeFilesystem, client_ip):
     urls = [a for a in args if a.startswith("http://") or a.startswith("https://")]
@@ -217,13 +355,14 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         return f"  % Total    % Received % Xferd  Average Speed\n100  1024  100  1024    0     0  saved to {filename}"
 
 
-def handle_shell(channel, client_ip, session_id):
-    fs = FakeFilesystem()
+def handle_shell(channel, client_ip, session_id, username, identity):
+    fs = FakeFilesystem(home_dir=identity["home"])
+    prompt_char = "#" if identity["uid"] == 0 else "$"
 
     def prompt_bytes():
         cwd = fs.pwd()
-        short = "~" if cwd == "/root" else cwd
-        return f"root@prod-web01:{short}# ".encode()
+        short = "~" if cwd == identity["home"] else cwd
+        return f"{username}@prod-web01:{short}{prompt_char} ".encode()
 
     channel.send(b"Last login: Tue Jul 29 09:14:02 2026 from 10.0.0.4\r\n")
     channel.send(prompt_bytes())
@@ -250,7 +389,8 @@ def handle_shell(channel, client_ip, session_id):
                         "session_id": session_id,
                         "command": command,
                     })
-                    output = run_command(command, fs, client_ip)
+                    telegram_alerts.alert_command(client_ip, username, command)
+                    output = run_command(command, fs, client_ip, username, identity)
                     if output is None:
                         channel.send(b"logout\r\n")
                         channel.close()
@@ -286,7 +426,7 @@ def handle_connection(client_socket, client_ip):
     server.event.wait(10)
 
     try:
-        handle_shell(channel, client_ip, session_id)
+        handle_shell(channel, client_ip, session_id, server.username, server.identity)
     finally:
         transport.close()
 

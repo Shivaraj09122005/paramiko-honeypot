@@ -20,17 +20,21 @@ API_URL = "https://api.telegram.org/bot{}/sendMessage"
 
 
 def send_alert(message: str):
+    print("DEBUG: send_alert called:", message)
+    print("DEBUG: BOT_TOKEN set?", bool(BOT_TOKEN), "CHAT_ID set?", bool(CHAT_ID))
     if not BOT_TOKEN or not CHAT_ID:
-        return  # alerts not configured - silently skip
-
+        print("DEBUG: missing token/chat_id, skipping")
+        return
     try:
-        requests.post(
+        r = requests.post(
             API_URL.format(BOT_TOKEN),
             data={"chat_id": CHAT_ID, "text": message},
             timeout=5,
         )
-    except Exception:
-        pass
+        print("DEBUG: telegram response status:", r.status_code)
+        print("DEBUG: telegram response body:", r.text)
+    except Exception as e:
+        print("DEBUG: telegram exception:", repr(e))
 
 
 def alert_login(src_ip, username, password):
@@ -42,4 +46,17 @@ def alert_download(src_ip, tool, url):
 
 
 def alert_privilege_escalation(src_ip, command):
-    send_alert(f"⚠️ Honeypot privilege escalation attempt\nIP: {src_ip}\nCommand: {command}")
+    send_alert(
+        f"⚠️ Honeypot privilege escalation attempt\n"
+        f"IP: {src_ip}\n"
+        f"Command: {command}"
+    )
+
+
+def alert_command(src_ip, username, command):
+    send_alert(
+        f"💻 Honeypot command executed\n"
+        f"IP: {src_ip}\n"
+        f"User: {username}\n"
+        f"Command: {command}"
+    )
