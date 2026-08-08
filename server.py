@@ -355,19 +355,34 @@ def handle_download(tool, args, fs: FakeFilesystem, client_ip):
         return f"  % Total    % Received % Xferd  Average Speed\n100  1024  100  1024    0     0  saved to {filename}"
 
 
+# Commands that real attackers use to try to pop a root shell after
+# logging in as an unprivileged user. Any of these trigger the fake
+# "[sudo] password for ...:" prompt below, instead of the old inline
+# sudoer-only elevation.
+SUDO_SHELL_ESCALATIONS = {"sudo su", "sudo su -", "sudo -i", "sudo -s"}
+
+
 def handle_shell(channel, client_ip, session_id, username, identity):
     fs = FakeFilesystem(home_dir=identity["home"])
-    prompt_char = "#" if identity["uid"] == 0 else "$"
+
+    # Mutable per-session identity so a successful "sudo su" can promote
+    # the rest of the session to root without opening a new connection.
+    state = {"username": username, "identity": identity}
+
+    def prompt_char():
+        return "#" if state["identity"]["uid"] == 0 else "$"
 
     def prompt_bytes():
         cwd = fs.pwd()
-        short = "~" if cwd == identity["home"] else cwd
-        return f"{username}@prod-web01:{short}{prompt_char} ".encode()
+        short = "~" if cwd == state["identity"]["home"] else cwd
+        return f"{state['username']}@prod-web01:{short}{prompt_char()} ".encode()
 
     channel.send(b"Last login: Tue Jul 29 09:14:02 2026 from 10.0.0.4\r\n")
     channel.send(prompt_bytes())
 
     buffer = b""
+    awaiting_sudo_password = False
+
     while True:
         try:
             data = channel.recv(1024)
@@ -378,33 +393,85 @@ def handle_shell(channel, client_ip, session_id, username, identity):
 
         for byte in data:
             b = bytes([byte])
+
             if b in (b"\r", b"\n"):
-                command = buffer.decode(errors="ignore").strip()
+                line = buffer.decode(errors="ignore").strip()
+                buffer = b""
                 channel.send(b"\r\n")
-                if command:
-                    log.info("Command from %s: %r", client_ip, command)
+
+                if awaiting_sudo_password:
+                    awaiting_sudo_password = False
+
+                    # We don't actually check the password - the honeypot's
+                    # whole job is to capture it and keep the attacker
+                    # engaged, so any input here "succeeds".
+                    log.warning(
+                        "Sudo password captured from %s (user=%s): %r",
+                        client_ip, state["username"], line,
+                    )
                     log_event({
-                        "event": "command",
+                        "event": "sudo_password_captured",
                         "src_ip": client_ip,
                         "session_id": session_id,
+                        "username": state["username"],
+                        "password": line,
+                    })
+                    telegram_alerts.alert_privilege_escalation(
+                        client_ip, f"sudo su (password entered: {line!r})"
+                    )
+
+                    state["identity"] = {"uid": 0, "gid": 0, "home": "/root", "sudoer": True}
+                    state["username"] = "root"
+                    fs.home_dir = "/root"
+                    fs.cd("/root")
+
+                    channel.send(prompt_bytes())
+                    continue
+
+                command = line
+                if not command:
+                    channel.send(prompt_bytes())
+                    continue
+
+                log.info("Command from %s: %r", client_ip, command)
+                log_event({
+                    "event": "command",
+                    "src_ip": client_ip,
+                    "session_id": session_id,
+                    "command": command,
+                })
+                telegram_alerts.alert_command(client_ip, state["username"], command)
+
+                if command in SUDO_SHELL_ESCALATIONS:
+                    log.warning("Privilege escalation attempt from %s: %r", client_ip, command)
+                    log_event({
+                        "event": "privilege_escalation_attempt",
+                        "src_ip": client_ip,
+                        "username": state["username"],
                         "command": command,
                     })
-                    telegram_alerts.alert_command(client_ip, username, command)
-                    output = run_command(command, fs, client_ip, username, identity)
-                    if output is None:
-                        channel.send(b"logout\r\n")
-                        channel.close()
-                        return
-                    if output:
-                        channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
+                    channel.send(f"[sudo] password for {state['username']}: ".encode())
+                    awaiting_sudo_password = True
+                    continue
+
+                output = run_command(command, fs, client_ip, state["username"], state["identity"])
+                if output is None:
+                    channel.send(b"logout\r\n")
+                    channel.close()
+                    return
+                if output:
+                    channel.send(output.replace("\n", "\r\n").encode() + b"\r\n")
                 channel.send(prompt_bytes())
-                buffer = b""
+
             elif b in (b"\x7f", b"\x08"):
-                buffer = buffer[:-1]
-                channel.send(b"\x08 \x08")
+                if buffer:
+                    buffer = buffer[:-1]
+                if not awaiting_sudo_password:
+                    channel.send(b"\x08 \x08")
             else:
                 buffer += b
-                channel.send(b)
+                if not awaiting_sudo_password:
+                    channel.send(b)
 
 
 def handle_connection(client_socket, client_ip):

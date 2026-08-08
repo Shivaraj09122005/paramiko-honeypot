@@ -30,91 +30,145 @@ PAGE_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Honeypot Command Center</title>
+<title>SentinelHive &mdash; Threat Operations Console</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root {
-    --bg: #0a0c11;
-    --bg-elevated: #12151c;
-    --card: #151922;
-    --card-border: #232838;
+    --bg: #0a0b14;
+    --bg-elevated: #12141f;
+    --card: #151726;
+    --card-border: #262a42;
     --accent: #5eead4;
     --accent-2: #f97066;
     --accent-3: #ffb454;
-    --text: #e8eaf0;
-    --text-dim: #8b93a7;
-    --radius: 14px;
+    --violet: #8b5cf6;
+    --text: #edeef7;
+    --text-dim: #949bb8;
+    --radius: 16px;
   }
 
   * { box-sizing: border-box; }
 
+  html { scroll-behavior: smooth; }
+
   body {
     font-family: 'Inter', -apple-system, sans-serif;
-    background: radial-gradient(circle at top left, #131722 0%, var(--bg) 55%);
+    background:
+      radial-gradient(circle at 12% -10%, rgba(139,92,246,0.20) 0%, transparent 45%),
+      radial-gradient(circle at 88% 0%, rgba(94,234,212,0.14) 0%, transparent 40%),
+      radial-gradient(circle at 50% 100%, rgba(249,112,102,0.08) 0%, transparent 55%),
+      linear-gradient(180deg, #0d0f1a 0%, var(--bg) 100%);
+    background-attachment: fixed;
     color: var(--text);
     margin: 0;
     padding: 0 0 48px 0;
+    min-height: 100vh;
   }
 
   header {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 28px 40px;
-    background: linear-gradient(135deg, rgba(94,234,212,0.08), rgba(249,112,102,0.06));
+    padding: 24px 40px;
+    background: linear-gradient(135deg, rgba(139,92,246,0.10), rgba(94,234,212,0.06) 60%, rgba(249,112,102,0.05));
     border-bottom: 1px solid var(--card-border);
+    box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+    backdrop-filter: blur(6px);
     flex-wrap: wrap;
     gap: 16px;
   }
 
-  .brand { display: flex; align-items: center; gap: 14px; }
+  header::after {
+    content: "";
+    position: absolute;
+    left: 0; right: 0; bottom: -1px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--violet), var(--accent-2), transparent);
+    opacity: 0.6;
+  }
+
+  .brand { display: flex; align-items: center; gap: 16px; }
 
   .brand-icon {
-    width: 44px; height: 44px;
-    border-radius: 12px;
-    background: linear-gradient(135deg, var(--accent), #22d3ee);
+    width: 48px; height: 48px;
+    border-radius: 13px;
+    background: linear-gradient(135deg, var(--accent), var(--violet) 65%, var(--accent-2));
     display: flex; align-items: center; justify-content: center;
-    font-size: 22px;
+    font-size: 24px;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 8px 24px rgba(139,92,246,0.35);
   }
 
   h1 {
     margin: 0;
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
+    font-size: 23px;
+    font-weight: 900;
+    letter-spacing: -0.03em;
+    background: linear-gradient(90deg, #ffffff, #c9cede 80%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
   }
 
-  .subtitle { margin: 2px 0 0 0; color: var(--text-dim); font-size: 13px; }
+  .subtitle {
+    margin: 3px 0 0 0;
+    color: var(--text-dim);
+    font-size: 12.5px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    letter-spacing: 0.01em;
+  }
+
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 0 rgba(94,234,212,0.6);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(94,234,212,0.55); }
+    70%  { box-shadow: 0 0 0 7px rgba(94,234,212,0); }
+    100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); }
+  }
 
   .gh-button {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    background: var(--card);
+    gap: 9px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.01));
     border: 1px solid var(--card-border);
     color: var(--text);
     text-decoration: none;
     font-weight: 600;
     font-size: 14px;
-    padding: 10px 18px;
-    border-radius: 10px;
-    transition: border-color .15s ease, transform .15s ease;
+    padding: 10px 20px;
+    border-radius: 11px;
+    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
   }
-  .gh-button:hover { border-color: var(--accent); transform: translateY(-1px); }
+  .gh-button:hover {
+    border-color: var(--accent);
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(94,234,212,0.15);
+  }
+  .gh-button svg { width: 16px; height: 16px; fill: currentColor; }
 
-  main { padding: 32px 40px; max-width: 1400px; margin: 0 auto; }
+  main { padding: 36px 40px; max-width: 1400px; margin: 0 auto; }
 
   .overview {
     display: flex;
     align-items: center;
     gap: 20px;
-    background: var(--card);
+    background: linear-gradient(135deg, rgba(139,92,246,0.10), var(--card) 55%);
     border: 1px solid var(--card-border);
     border-radius: var(--radius);
-    padding: 22px 28px;
+    padding: 24px 30px;
     margin-bottom: 28px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.25);
   }
 
   .overview .label {
@@ -144,13 +198,17 @@ PAGE_TEMPLATE = """
   }
 
   .card {
-    background: var(--card);
+    background: linear-gradient(180deg, rgba(255,255,255,0.02), transparent), var(--card);
     border: 1px solid var(--card-border);
     border-radius: var(--radius);
     padding: 22px;
-    transition: border-color .15s ease;
+    transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease;
   }
-  .card:hover { border-color: rgba(94,234,212,0.35); }
+  .card:hover {
+    border-color: rgba(94,234,212,0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 12px 30px rgba(0,0,0,0.3);
+  }
 
   .card-header {
     display: flex;
@@ -213,12 +271,13 @@ PAGE_TEMPLATE = """
   <div class="brand">
     <div class="brand-icon">🛡️</div>
     <div>
-      <h1>Honeypot Command Center</h1>
-      <p class="subtitle">SSH intrusion analytics &amp; threat intelligence</p>
+      <h1>SentinelHive</h1>
+      <p class="subtitle"><span class="live-dot"></span>Threat Operations Console &middot; live SSH intrusion analytics</p>
     </div>
   </div>
   <a class="gh-button" href="{{ github_url }}" target="_blank" rel="noopener noreferrer">
-    ⭐ View on GitHub
+    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+    View on GitHub
   </a>
 </header>
 
@@ -415,24 +474,30 @@ REPLAY_TEMPLATE = """
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Session Replay - {{ session_id }}</title>
+<title>Session Replay - {{ session_id }} &mdash; SentinelHive</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0a0c11;
-    --card: #151922;
-    --card-border: #232838;
+    --bg: #0a0b14;
+    --card: #151726;
+    --card-border: #262a42;
     --accent: #5eead4;
     --accent-2: #f97066;
-    --text: #e8eaf0;
-    --text-dim: #8b93a7;
+    --violet: #8b5cf6;
+    --text: #edeef7;
+    --text-dim: #949bb8;
   }
   body {
     font-family: 'Inter', sans-serif;
-    background: radial-gradient(circle at top left, #131722 0%, var(--bg) 55%);
+    background:
+      radial-gradient(circle at 12% -10%, rgba(139,92,246,0.18) 0%, transparent 45%),
+      radial-gradient(circle at 88% 0%, rgba(94,234,212,0.12) 0%, transparent 40%),
+      linear-gradient(180deg, #0d0f1a 0%, var(--bg) 100%);
+    background-attachment: fixed;
     color: var(--text);
     margin: 0;
     padding: 32px 40px;
+    min-height: 100vh;
   }
   a.back-link {
     color: var(--accent);
