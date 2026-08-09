@@ -41,6 +41,10 @@ Cowrie is a mature, production-grade honeypot - great to run for real threat int
 - [x] Milestone 11 - Real malware capture: SHA256 hashing, read-only quarantine, VirusTotal verdicts
 - [x] Milestone 12 - Docker Compose deployment
 - [x] Milestone 13 - Real-time Telegram alerts
+- [x] Milestone 14 - Multi-user accounts, per-user home directories, expanded commands
+- [x] Milestone 15 - DoS/brute-force protection: connection and auth-attempt rate limiting with automatic temporary IP bans
+- [x] Milestone 16 - AI mitigation advisor: session findings analyzed by Google Gemini to generate tailored incident summaries and remediation steps (rule-based fallback when no API key is set)
+- [x] Milestone 17 - Live AI chat on the mitigations page for asking follow-up questions about a session
 
 ---
 
@@ -57,6 +61,8 @@ honeypot-project/
   vt_lookup.py               VirusTotal hash-reputation lookups
   telegram_alerts.py          Real-time Telegram notifications
   dashboard.py               Flask web dashboard
+  rate_limiter.py             DoS/brute-force connection & auth rate limiting
+  mitigation_advisor.py       AI mitigation advisor (Gemini) + session chat
   requirements.txt
   Dockerfile
   docker-compose.yml
