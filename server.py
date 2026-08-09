@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import paramiko
 
 import db
+import rate_limiter
 import malware_capture
 import telegram_alerts
 from fake_fs import FakeFilesystem
@@ -63,6 +64,9 @@ class HoneypotServer(paramiko.ServerInterface):
         return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_auth_password(self, username, password):
+        if not rate_limiter.check_auth_attempt(self.client_ip):
+            return paramiko.AUTH_FAILED
+
         log.info("Login attempt from %s -> user=%r pass=%r", self.client_ip, username, password)
         self.username = username
         self.identity = get_user_identity(username)
@@ -502,6 +506,7 @@ def main():
     ensure_host_key()
     os.makedirs("logs", exist_ok=True)
     db.init_db()
+    rate_limiter.init()
     malware_capture.init_samples_table()
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -513,6 +518,10 @@ def main():
     while True:
         client_socket, addr = sock.accept()
         client_ip = addr[0]
+        if not rate_limiter.check_connection(client_ip):
+            log.warning("Dropping connection from banned/flooding IP %s", client_ip)
+            client_socket.close()
+            continue
         log.info("Connection from %s", client_ip)
         t = threading.Thread(target=handle_connection, args=(client_socket, client_ip), daemon=True)
         t.start()

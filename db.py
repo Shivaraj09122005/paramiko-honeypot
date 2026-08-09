@@ -192,3 +192,46 @@ def all_command_counts():
     ).fetchall()
     conn.close()
     return rows
+
+def init_bans_table():
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS banned_ips (
+            ip TEXT PRIMARY KEY,
+            reason TEXT,
+            banned_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+def ban_ip(ip: str, reason: str, expires_at_iso: str):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("""
+        INSERT INTO banned_ips (ip, reason, banned_at, expires_at)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(ip) DO UPDATE SET
+            reason = excluded.reason, banned_at = excluded.banned_at, expires_at = excluded.expires_at
+    """, (ip, reason, datetime.now(timezone.utc).isoformat(), expires_at_iso))
+    conn.commit()
+    conn.close()
+def is_ip_banned(ip: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT expires_at FROM banned_ips WHERE ip = ?", (ip,)).fetchone()
+    conn.close()
+    if not row:
+        return False
+    if datetime.now(timezone.utc) >= datetime.fromisoformat(row[0]):
+        conn = sqlite3.connect(DB_PATH)
+        conn.execute("DELETE FROM banned_ips WHERE ip = ?", (ip,))
+        conn.commit()
+        conn.close()
+        return False
+    return True
+def active_bans():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT ip, reason, banned_at, expires_at FROM banned_ips ORDER BY banned_at DESC"
+    ).fetchall()
+    conn.close()
+    return rows

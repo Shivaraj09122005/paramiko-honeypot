@@ -1,10 +1,11 @@
 """
-Web Dashboard - Milestone 6
--------------------------------
+Web Dashboard - Milestone 6 (+ Milestone 15 blocked IPs, Milestone 17 AI chat)
+--------------------------------------------------------------------------------
 A small Flask app that reads from the same SQLite database the honeypot
 writes to (logs/honeypot.db) and renders charts summarizing attacker
-activity: top source IPs, top commands run, top credentials tried, and
-recent download attempts.
+activity: top source IPs, top commands run, top credentials tried,
+recent download attempts, blocked/banned IPs, and an AI mitigation
+advisor with a live chat for each session.
 
 Run this SEPARATELY from server.py, on a different port, while the
 honeypot is running:
@@ -14,12 +15,13 @@ honeypot is running:
 Then visit http://<vm-ip>:5000 in a browser.
 """
 
-from flask import Flask, render_template_string
+from flask import Flask, render_template_string, request, redirect, url_for, jsonify
 import db
 import threat_intel
 import analyzer
 import attck_mapping
 import malware_capture
+import mitigation_advisor
 
 # Change this to your own repo URL if you fork the project.
 GITHUB_REPO_URL = "https://github.com/Shivaraj09122005/paramiko-honeypot"
@@ -135,6 +137,8 @@ PAGE_TEMPLATE = """
     70%  { box-shadow: 0 0 0 7px rgba(94,234,212,0); }
     100% { box-shadow: 0 0 0 0 rgba(94,234,212,0); }
   }
+
+  .header-buttons { display: flex; align-items: center; gap: 12px; }
 
   .gh-button {
     display: inline-flex;
@@ -263,6 +267,16 @@ PAGE_TEMPLATE = """
 
   a.replay-link { color: var(--accent); text-decoration: none; font-weight: 600; }
   a.replay-link:hover { text-decoration: underline; }
+
+  .badge-banned {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 6px;
+    background: rgba(249,112,102,0.15);
+    color: var(--accent-2);
+    font-weight: 700;
+    font-size: 11px;
+  }
 </style>
 </head>
 <body>
@@ -275,10 +289,13 @@ PAGE_TEMPLATE = """
       <p class="subtitle"><span class="live-dot"></span>Threat Operations Console &middot; live SSH intrusion analytics</p>
     </div>
   </div>
-  <a class="gh-button" href="{{ github_url }}" target="_blank" rel="noopener noreferrer">
-    <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
-    View on GitHub
-  </a>
+  <div class="header-buttons">
+    <a class="gh-button" href="/settings">⚙️ Settings</a>
+    <a class="gh-button" href="{{ github_url }}" target="_blank" rel="noopener noreferrer">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+      View on GitHub
+    </a>
+  </div>
 </header>
 
 <main>
@@ -355,27 +372,29 @@ PAGE_TEMPLATE = """
 
     <div class="card">
       <div class="card-header">
-        <div class="card-icon" style="background:rgba(249,112,102,0.15); color:var(--accent-2);">🎯</div>
-        <h3>Attacker Intent Breakdown</h3>
+        <div class="card-icon" style="background:rgba(249,112,102,0.15); color:var(--accent-2);">🚫</div>
+        <h3>Blocked / Banned IPs (DoS &amp; Brute-Force)</h3>
       </div>
-      <canvas id="intentChart"></canvas>
+      <div class="card-desc">IPs temporarily banned by the connection/auth rate limiter.</div>
+      <div class="table-wrap">
+        <table>
+          <tr><th>IP</th><th>Reason</th><th>Banned At</th><th>Expires</th></tr>
+          {% for ip, reason, banned_at, expires_at in banned_ips %}
+          <tr><td>{{ ip }}</td><td><span class="badge-banned">{{ reason }}</span></td><td>{{ banned_at }}</td><td>{{ expires_at }}</td></tr>
+          {% endfor %}
+          {% if not banned_ips %}
+          <tr><td colspan="4" style="color:var(--text-dim);">No IPs currently banned.</td></tr>
+          {% endif %}
+        </table>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-header">
-        <div class="card-icon" style="background:rgba(94,234,212,0.15); color:var(--accent);">🧩</div>
-        <h3>MITRE ATT&amp;CK Technique Mapping</h3>
+        <div class="card-icon" style="background:rgba(249,112,102,0.15); color:var(--accent-2);">🎯</div>
+        <h3>Attacker Intent Breakdown</h3>
       </div>
-      <div class="table-wrap">
-        <table>
-          <tr><th>Category</th><th>Count</th><th>Tactic</th><th>Technique</th></tr>
-          {% for category, count, tactic_id, tactic_name, tech_id, tech_name in attck_rows %}
-          <tr><td>{{ category }}</td><td>{{ count }}</td>
-          <td>{{ tactic_id }} {{ tactic_name }}</td>
-          <td>{{ tech_id }} {{ tech_name }}</td></tr>
-          {% endfor %}
-        </table>
-      </div>
+      <canvas id="intentChart"></canvas>
     </div>
 
     <div class="card">
@@ -412,7 +431,7 @@ PAGE_TEMPLATE = """
           <tr><th>Session</th><th>IP</th><th>Started</th><th>Commands</th><th></th></tr>
           {% for sid, ip, started, cmds in sessions %}
           <tr><td>{{ sid }}</td><td>{{ ip }}</td><td>{{ started }}</td><td>{{ cmds }}</td>
-          <td><a class="replay-link" href="/session/{{ sid }}">Replay &rarr;</a></td></tr>
+          <td><a href="/session/{{ sid }}">Replay &rarr;</a> | <a href="/session/{{ sid }}/mitigations">AI Mitigations &rarr;</a></td></tr>
           {% endfor %}
         </table>
       </div>
@@ -467,6 +486,193 @@ new Chart(document.getElementById('intentChart'), {
 """
 
 app = Flask(__name__)
+
+SETTINGS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Settings - SentinelHive</title>
+<style>
+body { font-family: Arial, sans-serif; background: #0a0b14; color: #edeef7; margin: 0; padding: 40px; }
+a { color: #5eead4; }
+.card { background: #151726; border: 1px solid #262a42; border-radius: 12px; padding: 24px; max-width: 500px; }
+input[type=text], input[type=password] {
+  width: 100%; padding: 10px; margin-top: 8px; margin-bottom: 16px;
+  background: #0a0b14; border: 1px solid #262a42; border-radius: 6px; color: #edeef7;
+}
+button {
+  background: #5eead4; color: #06110f; border: none; padding: 10px 20px;
+  border-radius: 8px; cursor: pointer; font-weight: 700;
+}
+.status { margin-bottom: 16px; padding: 10px; border-radius: 6px; }
+.status.set { background: rgba(94,234,212,0.15); color: #5eead4; }
+.status.unset { background: rgba(249,112,102,0.15); color: #f97066; }
+</style>
+</head>
+<body>
+<a href="/">&larr; Back to dashboard</a>
+<h2>Settings</h2>
+<div class="card">
+  <div class="status {{ 'set' if has_key else 'unset' }}">
+    {{ 'API key is set. AI-powered mitigations and chat are active.' if has_key else 'No API key set. Mitigations page will use the rule-based fallback only.' }}
+  </div>
+  <form method="POST">
+    <label for="api_key">Anthropic API Key</label>
+    <input type="password" id="api_key" name="api_key" placeholder="sk-ant-...">
+    <button type="submit">Save Key</button>
+  </form>
+  {% if has_key %}
+  <form method="POST" action="/settings/clear" style="margin-top: 10px;">
+    <button type="submit" style="background:#f97066;">Remove Key</button>
+  </form>
+  {% endif %}
+</div>
+</body>
+</html>
+"""
+
+MITIGATIONS_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+<title>Mitigations - {{ report.session_id }}</title>
+<style>
+body { font-family: Arial, sans-serif; background: #0a0b14; color: #edeef7; margin: 0; padding: 24px; }
+a { color: #5eead4; }
+.card { background: #151726; border: 1px solid #262a42; border-radius: 10px; padding: 20px; margin-top: 16px; }
+.risk { font-size: 32px; font-weight: bold; color: #f97066; }
+ul { padding-left: 20px; }
+table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #262a42; font-size: 14px; }
+.mode-badge { display:inline-block; padding: 3px 10px; border-radius: 6px; font-size: 12px; font-weight: 700; }
+.mode-llm { background: rgba(94,234,212,0.15); color: #5eead4; }
+.mode-rule { background: rgba(255,180,84,0.15); color: #ffb454; }
+.no-key-notice { background: rgba(249,112,102,0.12); color: #f97066; padding: 12px; border-radius: 8px; margin-top: 16px; }
+#chat-log { max-height: 320px; overflow-y: auto; margin-bottom: 12px; }
+.chat-msg { padding: 8px 12px; border-radius: 8px; margin-bottom: 8px; font-size: 14px; line-height: 1.5; }
+.chat-msg.user { background: #1e2233; margin-left: 40px; }
+.chat-msg.assistant { background: #10261f; margin-right: 40px; }
+.chat-msg p { margin: 0 0 10px 0; }
+.chat-msg p:last-child { margin-bottom: 0; }
+.chat-msg ul, .chat-msg ol { margin: 0 0 10px 0; padding-left: 22px; }
+.chat-msg li { margin-bottom: 4px; }
+.chat-msg h1, .chat-msg h2, .chat-msg h3, .chat-msg h4 { margin: 14px 0 6px 0; font-size: 15px; color: #5eead4; }
+.chat-msg h1:first-child, .chat-msg h2:first-child, .chat-msg h3:first-child { margin-top: 0; }
+.chat-msg code { background: #0a0b14; padding: 2px 6px; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+.chat-msg pre { background: #0a0b14; border: 1px solid #262a42; padding: 10px 12px; border-radius: 6px; overflow-x: auto; margin: 8px 0; }
+.chat-msg pre code { background: none; padding: 0; }
+.chat-msg strong { color: #edeef7; }
+.chat-msg hr { border: none; border-top: 1px solid #262a42; margin: 12px 0; }
+#chat-input-row { display: flex; gap: 8px; }
+#chat-input { flex: 1; padding: 10px; background: #0a0b14; border: 1px solid #262a42; border-radius: 6px; color: #edeef7; }
+#chat-send { background: #5eead4; color: #06110f; border: none; padding: 10px 18px; border-radius: 8px; cursor: pointer; font-weight: 700; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+</head>
+<body>
+<a href="/">&larr; Back to dashboard</a>
+<h2>Mitigation Report: {{ report.session_id }}</h2>
+<div class="card">
+<div>Risk Score</div>
+<div class="risk">{{ report.risk_score }} / 100</div>
+<div>Source IP: {{ report.src_ip }}</div>
+<div>Mode: <span class="mode-badge {{ 'mode-llm' if report.mode == 'llm-enhanced' else 'mode-rule' }}">{{ report.mode }}</span></div>
+</div>
+
+{% if not has_key %}
+<div class="no-key-notice">
+  No API key set &mdash; showing rule-based mitigations only. <a href="/settings">Add your Anthropic API key</a> for real-time AI analysis and chat.
+</div>
+{% endif %}
+
+{% if report.narrative %}
+<div class="card">
+<h3>AI Summary</h3>
+<p>{{ report.narrative }}</p>
+</div>
+{% endif %}
+
+<div class="card">
+<h3>ATT&amp;CK Techniques Observed</h3>
+<table>
+<tr><th>Category</th><th>Count</th><th>Tactic</th><th>Technique</th></tr>
+{% for t in report.attck_techniques %}
+<tr><td>{{ t.category }}</td><td>{{ t.count }}</td><td>{{ t.tactic_id }} {{ t.tactic_name }}</td><td>{{ t.technique_id }} {{ t.technique_name }}</td></tr>
+{% endfor %}
+</table>
+</div>
+
+<div class="card">
+<h3>Recommended Mitigations</h3>
+<ul>
+{% for m in report.mitigations %}
+<li>{{ m }}</li>
+{% endfor %}
+</ul>
+</div>
+
+<div class="card">
+<h3>Ask the AI about this session</h3>
+{% if not has_key %}
+<p style="color:#949bb8;">Set an API key in <a href="/settings">Settings</a> to use the chat.</p>
+{% else %}
+<div id="chat-log"></div>
+<div id="chat-input-row">
+  <input type="text" id="chat-input" placeholder="e.g. What's the attacker likely trying to do?">
+  <button id="chat-send">Send</button>
+</div>
+<script>
+const sessionId = {{ report.session_id | tojson }};
+let history = [];
+const log = document.getElementById('chat-log');
+const input = document.getElementById('chat-input');
+const sendBtn = document.getElementById('chat-send');
+
+function addMessage(role, text) {
+  const div = document.createElement('div');
+  div.className = 'chat-msg ' + role;
+  if (role === 'assistant') {
+    div.innerHTML = marked.parse(text);
+  } else {
+    div.textContent = text;
+  }
+  log.appendChild(div);
+  log.scrollTop = log.scrollHeight;
+}
+
+async function sendMessage() {
+  const message = input.value.trim();
+  if (!message) return;
+  addMessage('user', message);
+  input.value = '';
+  sendBtn.disabled = true;
+  sendBtn.textContent = '...';
+  try {
+    const res = await fetch(`/session/${sessionId}/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message, history })
+    });
+    const data = await res.json();
+    addMessage('assistant', data.reply);
+    history.push({ role: 'user', content: message });
+    history.push({ role: 'assistant', content: data.reply });
+  } catch (e) {
+    addMessage('assistant', 'Error contacting the AI. Check the dashboard terminal for details.');
+  }
+  sendBtn.disabled = false;
+  sendBtn.textContent = 'Send';
+}
+
+sendBtn.addEventListener('click', sendMessage);
+input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+</script>
+{% endif %}
+</div>
+
+</body>
+</html>
+"""
 
 REPLAY_TEMPLATE = """
 <!DOCTYPE html>
@@ -577,16 +783,12 @@ def dashboard():
     total_events = db.total_event_count()
     sessions = db.recent_sessions(15)
     malware_samples = malware_capture.recent_samples(10)
+    banned_ips = db.active_bans()
 
     category_totals = {}
     for command, count in db.all_command_counts():
         category, _risk = analyzer.classify_and_score(command)
         category_totals[category] = category_totals.get(category, 0) + count
-
-    attck_rows = []
-    for category, count in category_totals.items():
-        info = attck_mapping.get_attck_info(category)
-        attck_rows.append((category, count, info["tactic_id"], info["tactic_name"], info["technique_id"], info["technique_name"]))
 
     return render_template_string(
         PAGE_TEMPLATE,
@@ -599,9 +801,9 @@ def dashboard():
         credentials=credentials,
         downloads=downloads,
         sessions=sessions,
+        banned_ips=banned_ips,
         category_labels=list(category_totals.keys()),
         category_values=list(category_totals.values()),
-        attck_rows=attck_rows,
         malware_samples=malware_samples,
         github_url=GITHUB_REPO_URL,
     )
@@ -611,6 +813,44 @@ def dashboard():
 def replay(session_id):
     events = db.session_events(session_id)
     return render_template_string(REPLAY_TEMPLATE, session_id=session_id, events=events)
+
+
+@app.route("/session/<session_id>/mitigations")
+def mitigations(session_id):
+    report = mitigation_advisor.generate_report(session_id)
+    return render_template_string(
+        MITIGATIONS_TEMPLATE,
+        report=report,
+        has_key=mitigation_advisor.has_api_key(),
+    )
+
+
+@app.route("/session/<session_id>/chat", methods=["POST"])
+def session_chat(session_id):
+    data = request.get_json(force=True)
+    message = data.get("message", "")
+    history = data.get("history", [])
+    reply = mitigation_advisor.chat_about_session(session_id, message, history)
+    return jsonify({"reply": reply})
+
+
+@app.route("/settings", methods=["GET", "POST"])
+def settings():
+    if request.method == "POST":
+        key = request.form.get("api_key", "").strip()
+        if key:
+            mitigation_advisor.save_api_key(key)
+        return redirect(url_for("settings"))
+    return render_template_string(
+        SETTINGS_TEMPLATE,
+        has_key=mitigation_advisor.has_api_key(),
+    )
+
+
+@app.route("/settings/clear", methods=["POST"])
+def settings_clear():
+    mitigation_advisor.clear_api_key()
+    return redirect(url_for("settings"))
 
 
 if __name__ == "__main__":
