@@ -26,6 +26,27 @@ Cowrie is a mature, production-grade honeypot - great to run for real threat int
 
 ---
 
+## Screenshots
+
+**Dashboard overview**
+![Dashboard 1](screenshots/dashboard-1.png)
+![Dashboard 2](screenshots/dashboard-2.png)
+![Dashboard 3](screenshots/dashboard-3.png)
+
+**Attacker session in a real terminal**
+![SSH session](screenshots/ssh-session.png)
+
+**Session replay**
+![Session replay](screenshots/session-replay.png)
+
+**AI mitigation advisor**
+![Mitigations 1](screenshots/mitigations-1.png)
+![Mitigations 2](screenshots/mitigations-2.png)
+
+**Settings (API key setup)**
+![Settings](screenshots/settings.png)
+---
+
 ## Project status - all milestones complete
 
 - [x] Milestone 1 - Project scaffold
